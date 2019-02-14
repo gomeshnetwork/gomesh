@@ -1,18 +1,16 @@
-package tcc
+package gomesh
 
 import (
 	"context"
 
 	"github.com/dynamicgo/xerrors"
-
-	"github.com/gomeshnetwork/gomesh"
 	"google.golang.org/grpc/metadata"
 )
 
 var txidkey = "gomesh_tcc_txid"
 
-// Session .
-type Session interface {
+// TccSession .
+type TccSession interface {
 	Context() context.Context
 	Commit() error
 	Cancel() error
@@ -20,7 +18,7 @@ type Session interface {
 
 type sessionImpl struct {
 	txid      string
-	tccServer gomesh.TccServer
+	tccServer TccServer
 	ctx       context.Context
 }
 
@@ -29,25 +27,25 @@ func (session *sessionImpl) Context() context.Context {
 }
 
 func (session *sessionImpl) Commit() error {
-	return session.tccServer.Commit(session.txid)
+	return session.tccServer.Commit(session.ctx, session.txid)
 }
 
 func (session *sessionImpl) Cancel() error {
-	return session.tccServer.Cancel(session.txid)
+	return session.tccServer.Cancel(session.ctx, session.txid)
 }
 
-// New .
-func New(ctx context.Context) (Session, error) {
+// NewTcc .
+func NewTcc(ctx context.Context) (TccSession, error) {
 
-	tccServer := gomesh.GetTccServer()
+	tccServer := GetTccServer()
 
 	if tccServer == nil {
-		return nil, xerrors.New("gomesh.tccServer not register")
+		return nil, xerrors.New("tccServer not register")
 	}
 
-	parentTxid, _ := Txid(ctx)
+	parentTxid, _ := TccTxid(ctx)
 
-	txid, err := tccServer.NewTx(parentTxid)
+	txid, err := tccServer.NewTx(ctx, parentTxid)
 
 	if err != nil {
 		return nil, err
@@ -64,8 +62,8 @@ func New(ctx context.Context) (Session, error) {
 	return session, nil
 }
 
-// Txid .
-func Txid(ctx context.Context) (string, bool) {
+// TccTxid .
+func TccTxid(ctx context.Context) (string, bool) {
 	md, ok := metadata.FromIncomingContext(ctx)
 
 	if !ok {

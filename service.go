@@ -264,8 +264,12 @@ func (register *serviceRegister) startGrpcServices(agent Agent, grpcServiceNames
 func (register *serviceRegister) UnaryServerInterceptor(
 	ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 
+	txid, _ := TccTxid(ctx)
+	var key string
+
 	if register.tccServer != nil {
-		err := register.tccServer.BeforeRequire(ctx, info.FullMethod)
+		var err error
+		key, err = register.tccServer.BeforeRequire(ctx, txid, info.FullMethod)
 
 		if err != nil {
 			register.ErrorF("tcc resource %s before lock err %s", info.FullMethod, err)
@@ -282,7 +286,7 @@ func (register *serviceRegister) UnaryServerInterceptor(
 	}
 
 	if register.tccServer != nil {
-		err := register.tccServer.AfterRequire(ctx, info.FullMethod)
+		err := register.tccServer.AfterRequire(ctx, txid, info.FullMethod, key)
 
 		if err != nil {
 			register.ErrorF("tcc resource %s after lock err %s", info.FullMethod, err)
