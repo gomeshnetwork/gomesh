@@ -10,7 +10,7 @@ import (
 
 	"github.com/dynamicgo/slf4go"
 
-	"github.com/dynamicgo/gomesh"
+	"github.com/gomeshnetwork/gomesh"
 
 	config "github.com/dynamicgo/go-config"
 	"google.golang.org/grpc"

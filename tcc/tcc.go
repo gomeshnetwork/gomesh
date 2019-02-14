@@ -5,7 +5,7 @@ import (
 
 	"github.com/dynamicgo/xerrors"
 
-	"github.com/dynamicgo/gomesh"
+	"github.com/gomeshnetwork/gomesh"
 	"google.golang.org/grpc/metadata"
 )
 

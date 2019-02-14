@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/dynamicgo/gomesh"
+	"github.com/gomeshnetwork/gomesh"
 
 	config "github.com/dynamicgo/go-config"
 	extend "github.com/dynamicgo/go-config-extend"
