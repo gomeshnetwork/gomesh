@@ -2,9 +2,10 @@ package gomesh
 
 import (
 	"context"
-	"errors"
 	"net"
 	"sync"
+
+	"github.com/dynamicgo/xerrors/apierr"
 
 	"github.com/dynamicgo/xerrors"
 
@@ -16,9 +17,13 @@ import (
 
 //go:generate protoc --go_out=plugins=grpc,paths=source_relative:. mesh.proto
 
+const apierrScope = "gomesh"
+
 // errors
 var (
-	ErrAgent = errors.New("agent implement not found")
+	ErrInternal = apierr.WithScope(-1, "the internal error", apierrScope)
+	ErrAgent    = apierr.WithScope(-2, "agent implement not found", apierrScope)
+	ErrExists   = apierr.WithScope(-3, "target resource exists", apierrScope)
 )
 
 // Service service
