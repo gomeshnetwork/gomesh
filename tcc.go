@@ -130,3 +130,34 @@ func TccTxMetadata(ctx context.Context, key string) (string, bool) {
 
 	return "", false
 }
+
+// TccLocalRequire .
+func TccLocalRequire(ctx context.Context, resourceName string, f func() error) error {
+
+	tccServer := GetTccServer()
+
+	if tccServer != nil {
+		var err error
+		ctx, err = tccServer.BeforeRequire(ctx, resourceName)
+
+		if err != nil {
+			return xerrors.Wrapf(err, "tcc resource %s before lock err", resourceName)
+		}
+	}
+
+	err := f()
+
+	if err != nil {
+		return xerrors.Wrapf(err, "tcc resource %s lock err", resourceName)
+	}
+
+	if tccServer != nil {
+		err := tccServer.AfterRequire(ctx, resourceName)
+
+		if err != nil {
+			return xerrors.Wrapf(err, "tcc resource %s after lock err", resourceName)
+		}
+	}
+
+	return nil
+}
