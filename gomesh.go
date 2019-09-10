@@ -40,6 +40,7 @@ type ServiceRegisterEntry struct {
 // MeshBuilder .
 type MeshBuilder interface {
 	RegisterService(extensionName string, serviceName string) error
+	RegisterExtension(extension Extension) error
 	Start(config config.Config) error
 }
 
