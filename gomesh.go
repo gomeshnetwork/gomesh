@@ -1,344 +1,176 @@
 package gomesh
 
 import (
-	"context"
-	"net"
-	"sort"
 	"sync"
 
-	config "github.com/dynamicgo/go-config"
+	"github.com/dynamicgo/go-config"
+	extend "github.com/dynamicgo/go-config-extend"
 	"github.com/dynamicgo/injector"
 	"github.com/dynamicgo/slf4go"
 	"github.com/dynamicgo/xerrors"
 	"github.com/dynamicgo/xerrors/apierr"
-	"google.golang.org/grpc"
 )
 
 // ScopeOfAPIError .
-const ScopeOfAPIError = "gomesh"
+const errorScope = "gomesh"
 
 // errors
 var (
-	ErrInternal = apierr.WithScope(-1, "the internal error", ScopeOfAPIError)
-	ErrAgent    = apierr.WithScope(-2, "agent implement not found", ScopeOfAPIError)
-	ErrExists   = apierr.WithScope(-3, "target resource exists", ScopeOfAPIError)
+	ErrInternal = apierr.WithScope(-1, "the internal error", errorScope)
+	ErrAgent    = apierr.WithScope(-2, "agent implement not found", errorScope)
+	ErrExists   = apierr.WithScope(-3, "target resource exists", errorScope)
+	ErrNotFound = apierr.WithScope(-3, "target resource not found", errorScope)
 )
 
-// Service gomesh service root interface
+// Service gomesh service base interface has nothing
 type Service interface{}
 
-// GrpcService grpc service support remote access
-type GrpcService interface {
+// Runnable gomesh service base interface has nothing
+type Runnable interface {
 	Service
-	GrpcHandle(server *grpc.Server) error
+	Start() error
 }
 
-// Extension gomesh service extension module
+// ServiceRegisterEntry .
+type ServiceRegisterEntry struct {
+	Name    string  // service name
+	Service Service // service impl
+}
+
+// MeshBuilder .
+type MeshBuilder interface {
+	RegisterService(extensionName string, serviceName string) error
+	Start(config config.Config) error
+}
+
+// Extension gomesh service handle extension
 type Extension interface {
-	Order() int   // extension call order number
 	Name() string // extension name
-
+	Begin(config config.Config) error
+	CreateSerivce(serviceName string, config config.Config) (Service, error)
+	End() error
 }
 
-// ServiceExtension .
-type ServiceExtension interface {
-	Extension
-	RegisterService(service Service) // register service to extension module
+type meshBuilderImpl struct {
+	slf4go.Logger                        // mixin logger
+	injector        injector.Injector    // injector context
+	registers       map[string]string    // registers services
+	orderServices   []string             //order service name
+	extensions      map[string]Extension // extensions
+	orderExtensions []Extension          // order extension names
 }
 
-// RunnableExtension .
-type RunnableExtension interface {
-	Extension
-	Start() error // start extension module
-}
-
-// GrpcUnaryInterceptor .
-type GrpcUnaryInterceptor interface {
-	Extension
-	BeforeCallServiceMethod(ctx context.Context, method string) (context.Context, error)
-	AfterCallServiceMethod(ctx context.Context, method string) error
-}
-
-// RemoteAgent remote service agent,using grpc as underlying  protocol
-type RemoteAgent interface {
-	Start(config config.Config) error
-	Config(name string) (config.Config, error)
-	Listen() (net.Listener, error)
-	Connect(name string, options ...grpc.DialOption) (*grpc.ClientConn, error)
-}
-
-// LocalF local service factory function
-type LocalF func(config config.Config) (Service, error)
-
-// RemoteF remote service factory function
-type RemoteF func(conn *grpc.ClientConn) (Service, error)
-
-// Register .
-type Register interface {
-	LocalService(name string, F LocalF) error
-	RemoteService(name string, F RemoteF) error
-	RegisterExtension(extension Extension) error
-	RegisterRemoteAgent(agent RemoteAgent) error
-	Start(config config.Config) error
-}
-
-type localService struct {
-	F    LocalF
-	Name string
-}
-
-type remoteService struct {
-	F    RemoteF
-	Name string
-}
-
-type registerImpl struct {
-	slf4go.Logger                                // mixin logger
-	localServices         []*localService        // local services
-	remoteServices        []*remoteService       // remote services
-	injector              injector.Injector      // injector context
-	remoteAgent           RemoteAgent            // remote service agent
-	extensions            []Extension            // extensions
-	grpcUnaryInterceptors []GrpcUnaryInterceptor // grcp unary interceptors
-}
-
-// NewServiceRegister create new service register object
-func NewServiceRegister() Register {
-	return &registerImpl{
-		Logger:   slf4go.Get("mesh-service"),
-		injector: injector.New(),
+func newMeshBuilder() MeshBuilder {
+	return &meshBuilderImpl{
+		Logger:    slf4go.Get("gomesh"),
+		registers: make(map[string]string),
 	}
 }
 
-func (register *registerImpl) checkServiceName(name string) error {
-	for _, serviceF := range register.localServices {
-		if serviceF.Name == name {
-			return xerrors.Wrapf(injector.ErrExists, "service %s exists", name)
+func (builder *meshBuilderImpl) RegisterService(extensionName string, serviceName string) error {
 
-		}
+	_, ok := builder.registers[serviceName]
+
+	if ok {
+		return xerrors.Wrapf(ErrExists, "service %s exists", serviceName)
 	}
 
-	for _, n := range register.remoteServices {
-		if n.Name == name {
-			return xerrors.Wrapf(injector.ErrExists, "service %s exists", name)
-
-		}
+	if _, ok := builder.extensions[extensionName]; !ok {
+		return xerrors.Wrapf(ErrNotFound, "extension %s not found", extensionName)
 	}
+
+	builder.registers[serviceName] = extensionName
+	builder.orderServices = append(builder.orderServices, serviceName)
 
 	return nil
 }
 
-func (register *registerImpl) RemoteService(name string, F RemoteF) error {
+func (builder *meshBuilderImpl) RegisterExtension(extension Extension) error {
 
-	if err := register.checkServiceName(name); err != nil {
-		return err
+	_, ok := builder.extensions[extension.Name()]
+
+	if ok {
+		return xerrors.Wrapf(ErrExists, "extension %s exists", extension.Name())
 	}
 
-	f := &remoteService{
-		Name: name,
-		F:    F,
-	}
-
-	register.remoteServices = append(register.remoteServices, f)
+	builder.extensions[extension.Name()] = extension
+	builder.orderExtensions = append(builder.orderExtensions, extension)
 
 	return nil
 }
 
-func (register *registerImpl) LocalService(name string, F LocalF) error {
+func (builder *meshBuilderImpl) Start(config config.Config) error {
 
-	if err := register.checkServiceName(name); err != nil {
-		return err
-	}
+	injector := injector.New()
 
-	f := &localService{
-		Name: name,
-		F:    F,
-	}
-
-	register.localServices = append(register.localServices, f)
-
-	return nil
-}
-
-func (register *registerImpl) RegisterRemoteAgent(agent RemoteAgent) error {
-
-	if register.remoteAgent != nil {
-		return xerrors.Wrapf(ErrExists, "duplicate register agent")
-	}
-
-	register.remoteAgent = agent
-
-	return nil
-}
-
-func (register *registerImpl) RegisterExtension(extension Extension) error {
-
-	for _, extension := range register.extensions {
-		if extension.Name() == extension.Name() {
-			return xerrors.Wrapf(ErrExists, "extension %s duplicate register", extension.Name())
-		}
-	}
-
-	register.extensions = append(register.extensions, extension)
-
-	return nil
-}
-
-func (register *registerImpl) sortExtension() {
-	sort.Slice(register.extensions, func(i, j int) bool {
-		return register.extensions[i].Order() < register.extensions[j].Order()
-	})
-
-	for _, extension := range register.extensions {
-		if interceptor, ok := extension.(GrpcUnaryInterceptor); ok {
-			register.grpcUnaryInterceptors = append(register.grpcUnaryInterceptors, interceptor)
-		}
-	}
-}
-
-func (register *registerImpl) createRemoteServices() error {
-	register.DebugF("create remote services ...")
-
-	for _, sf := range register.remoteServices {
-		register.InfoF("create remote service %s", sf.Name)
-		conn, err := register.remoteAgent.Connect(sf.Name)
+	for _, extension := range builder.extensions {
+		subconfig, err := extend.SubConfig(config, "gomesh", "extension", extension.Name())
 
 		if err != nil {
-			return xerrors.Wrapf(err, "create remote service %s connect error", sf.Name)
+			return xerrors.Wrapf(err, "get config gomesh.extension.%s error", extension.Name())
 		}
 
-		service, err := sf.F(conn)
+		builder.DebugF("call extension %s initialize routine", extension.Name())
+
+		if err := extension.Begin(subconfig); err != nil {
+			return xerrors.Wrapf(err, "start extension %s error", extension.Name())
+		}
+
+		builder.DebugF("call extension %s initialize routine -- success", extension.Name())
+	}
+
+	var services []ServiceRegisterEntry
+
+	for _, serviceName := range builder.orderServices {
+		subconfig, err := extend.SubConfig(config, "gomesh", "service", serviceName)
 
 		if err != nil {
-			return xerrors.Wrapf(err, "create remote service %s proxy error", sf.Name)
+			return xerrors.Wrapf(err, "get config gomesh.service.%s error", serviceName)
 		}
 
-		register.injector.Register(sf.Name, service)
-	}
+		extension := builder.extensions[builder.registers[serviceName]]
 
-	register.DebugF("create remote services -- completed")
+		builder.DebugF("create service %s by extension %s", serviceName, extension.Name())
 
-	return nil
-}
-
-func (register *registerImpl) startGrpcServices(grpcServiceNames []string, grpcServices []GrpcService) error {
-
-	listener, err := register.remoteAgent.Listen()
-
-	if err != nil {
-		return xerrors.Wrapf(err, "create grpc service listener error")
-	}
-
-	var server *grpc.Server
-
-	server = grpc.NewServer(grpc.UnaryInterceptor(register.UnaryServerInterceptor))
-
-	for i, grpcService := range grpcServices {
-
-		register.DebugF("start grpc service %s", grpcServiceNames[i])
-
-		if err := grpcService.GrpcHandle(server); err != nil {
-			return xerrors.Wrapf(err, "call grpc service %s handle error", grpcServiceNames[i])
-		}
-
-		register.DebugF("start grpc service %s -- success", grpcServiceNames[i])
-	}
-
-	go func() {
-		if err := server.Serve(listener); err != nil {
-			register.ErrorF("grpc serve err %s", err)
-		}
-	}()
-
-	return nil
-}
-
-func (register *registerImpl) UnaryServerInterceptor(
-	ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-
-	var err error
-
-	for _, interceptor := range register.grpcUnaryInterceptors {
-		ctx, err = interceptor.BeforeCallServiceMethod(ctx, info.FullMethod)
+		service, err := extension.CreateSerivce(serviceName, subconfig)
 
 		if err != nil {
-			register.ErrorF("access ctrl return error for method %s\n\t%s", info.FullMethod, err)
-			err = apierr.AsGrpcError(apierr.As(err, apierr.New(-1, "UNKNOWN")))
-			return nil, err
+			return xerrors.Wrapf(err, "create service %s by extension %s error", serviceName, extension.Name())
 		}
+
+		builder.DebugF("create service %s by extension %s -- success", serviceName, extension.Name())
+
+		injector.Register(serviceName, service)
+
+		services = append(services, ServiceRegisterEntry{Name: serviceName, Service: service})
 	}
 
-	resp, err := handler(ctx, req)
+	for _, entry := range services {
 
-	if err != nil {
-		register.ErrorF("call %s err %s", info.FullMethod, err)
-		err = apierr.AsGrpcError(apierr.As(err, apierr.New(-1, "UNKNOWN")))
-	} else {
-		for _, interceptor := range register.grpcUnaryInterceptors {
-			err = interceptor.AfterCallServiceMethod(ctx, info.FullMethod)
+		builder.DebugF("bind service %s", entry.Name)
 
-			if err != nil {
-				register.ErrorF("access ctrl return error for method %s\n\t%s", info.FullMethod, err)
-				err = apierr.AsGrpcError(apierr.As(err, apierr.New(-1, "UNKNOWN")))
-			}
+		if err := injector.Bind(entry.Service); err != nil {
+			return xerrors.Wrapf(err, "service %s bind error", entry.Name)
 		}
+
+		builder.DebugF("bind service %s -- success", entry.Name)
 	}
 
-	return resp, err
-}
+	for _, extension := range builder.extensions {
 
-func (register *registerImpl) createLocalServices(config config.Config) error {
+		builder.DebugF("call extension %s finally routine", extension.Name())
 
-	var services []Service
-	var serviceNames []string
-	var grpcServices []GrpcService
-	var grpcServiceNames []string
-
-	for _, f := range register.localServices {
-		register.InfoF("create local service %s", f.Name)
-
-		subconfig, err := register.remoteAgent.Config(f.Name)
-
-		if err != nil {
-			return xerrors.Wrapf(err, "load service %s config err", f.Name)
+		if err := extension.End(); err != nil {
+			return xerrors.Wrapf(err, "extension %s finally routine error", extension.Name())
 		}
 
-		service, err := f.F(subconfig)
-
-		if err != nil {
-			return xerrors.Wrapf(err, "create service %s error", f.Name)
-		}
-
-		services = append(services, service)
-		serviceNames = append(serviceNames, f.Name)
-		register.injector.Register(f.Name, service)
-
-		if grpcService, ok := service.(GrpcService); ok {
-			register.InfoF("local service %s is a grpc service", f.Name)
-			grpcServices = append(grpcServices, grpcService)
-			grpcServiceNames = append(grpcServiceNames, f.Name)
-		}
-
-		for _, extension := range register.extensions {
-			if serviceExtension, ok := extension.(ServiceExtension); ok {
-				register.InfoF("register local service %s for extension %s", f.Name, extension.Name())
-				serviceExtension.RegisterService(service)
-			}
-		}
+		builder.DebugF("call extension %s finally routine -- success", extension.Name())
 	}
 
-	for i, service := range services {
-		register.DebugF("bind service %s", serviceNames[i])
-		if err := register.injector.Bind(service); err != nil {
-			return xerrors.Wrapf(err, "service %s bind error", serviceNames[i])
-		}
-	}
-
-	for _, extension := range register.extensions {
-		if runnableExtension, ok := extension.(RunnableExtension); ok {
-			register.InfoF("start extension %s", extension.Name())
-			if err := runnableExtension.Start(); err != nil {
-				return xerrors.Wrapf(err, "start extension %s error", extension.Name())
+	for _, entry := range services {
+		if runnable, ok := entry.Service.(Runnable); ok {
+			if err := runnable.Start(); err != nil {
+				return xerrors.Wrapf(err, "start service %s error", entry.Name)
 			}
 		}
 	}
@@ -346,56 +178,14 @@ func (register *registerImpl) createLocalServices(config config.Config) error {
 	return nil
 }
 
-func (register *registerImpl) Start(config config.Config) error {
-	register.sortExtension()
-
-	register.DebugF("start remote service agent")
-
-	if err := register.remoteAgent.Start(config); err != nil {
-		return xerrors.Wrapf(err, "start remote service agent error")
-	}
-
-	register.DebugF("start remote service agent -- success")
-
-	if err := register.createRemoteServices(); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-var globalRegister Register
+var meshBuilder MeshBuilder
 var once sync.Once
 
-func getServiceRegister() Register {
+// Builder get mesh builder instance
+func Builder() MeshBuilder {
 	once.Do(func() {
-		globalRegister = NewServiceRegister()
+		meshBuilder = newMeshBuilder()
 	})
 
-	return globalRegister
-}
-
-// LocalService register local service
-func LocalService(name string, F LocalF) {
-	getServiceRegister().LocalService(name, F)
-}
-
-// RemoteService register remote service
-func RemoteService(name string, F RemoteF) {
-	getServiceRegister().RemoteService(name, F)
-}
-
-// RegisterRemoteAgent register remote service
-func RegisterRemoteAgent(agent RemoteAgent) {
-	getServiceRegister().RegisterRemoteAgent(agent)
-}
-
-// RegisterExtension register extension module
-func RegisterExtension(extension Extension) {
-	getServiceRegister().RegisterExtension(extension)
-}
-
-// Start .
-func Start(config config.Config) error {
-	return getServiceRegister().Start(config)
+	return meshBuilder
 }
