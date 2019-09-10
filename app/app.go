@@ -1,4 +1,4 @@
-package gomesh
+package app
 
 import (
 	"flag"

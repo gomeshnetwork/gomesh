@@ -47,7 +47,7 @@ type MeshBuilder interface {
 // Extension gomesh service handle extension
 type Extension interface {
 	Name() string // extension name
-	Begin(config config.Config) error
+	Begin(config config.Config, builder MeshBuilder) error
 	CreateSerivce(serviceName string, config config.Config) (Service, error)
 	End() error
 }
@@ -63,8 +63,9 @@ type meshBuilderImpl struct {
 
 func newMeshBuilder() MeshBuilder {
 	return &meshBuilderImpl{
-		Logger:    slf4go.Get("gomesh"),
-		registers: make(map[string]string),
+		Logger:     slf4go.Get("gomesh"),
+		registers:  make(map[string]string),
+		extensions: make(map[string]Extension),
 	}
 }
 
@@ -102,7 +103,7 @@ func (builder *meshBuilderImpl) RegisterExtension(extension Extension) error {
 
 func (builder *meshBuilderImpl) Start(config config.Config) error {
 
-	injector := injector.New()
+	context := injector.New()
 
 	for _, extension := range builder.extensions {
 		subconfig, err := extend.SubConfig(config, "gomesh", "extension", extension.Name())
@@ -113,7 +114,7 @@ func (builder *meshBuilderImpl) Start(config config.Config) error {
 
 		builder.DebugF("call extension %s initialize routine", extension.Name())
 
-		if err := extension.Begin(subconfig); err != nil {
+		if err := extension.Begin(subconfig, builder); err != nil {
 			return xerrors.Wrapf(err, "start extension %s error", extension.Name())
 		}
 
@@ -141,7 +142,7 @@ func (builder *meshBuilderImpl) Start(config config.Config) error {
 
 		builder.DebugF("create service %s by extension %s -- success", serviceName, extension.Name())
 
-		injector.Register(serviceName, service)
+		context.Register(serviceName, service)
 
 		services = append(services, ServiceRegisterEntry{Name: serviceName, Service: service})
 	}
@@ -150,7 +151,7 @@ func (builder *meshBuilderImpl) Start(config config.Config) error {
 
 		builder.DebugF("bind service %s", entry.Name)
 
-		if err := injector.Bind(entry.Service); err != nil {
+		if err := context.Bind(entry.Service); err != nil {
 			return xerrors.Wrapf(err, "service %s bind error", entry.Name)
 		}
 
@@ -170,9 +171,11 @@ func (builder *meshBuilderImpl) Start(config config.Config) error {
 
 	for _, entry := range services {
 		if runnable, ok := entry.Service.(Runnable); ok {
+			builder.DebugF("start runnable service %s", entry.Name)
 			if err := runnable.Start(); err != nil {
 				return xerrors.Wrapf(err, "start service %s error", entry.Name)
 			}
+			builder.DebugF("start runnable service %s -- success", entry.Name)
 		}
 	}
 
