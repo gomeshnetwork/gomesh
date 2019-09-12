@@ -42,6 +42,7 @@ type MeshBuilder interface {
 	RegisterService(extensionName string, serviceName string) error
 	RegisterExtension(extension Extension) error
 	Start(config config.Config) error
+	FindService(name string, service interface{})
 }
 
 // Extension gomesh service handle extension
@@ -66,6 +67,7 @@ func newMeshBuilder() MeshBuilder {
 		Logger:     slf4go.Get("gomesh"),
 		registers:  make(map[string]string),
 		extensions: make(map[string]Extension),
+		injector:   injector.New(),
 	}
 }
 
@@ -101,9 +103,11 @@ func (builder *meshBuilderImpl) RegisterExtension(extension Extension) error {
 	return nil
 }
 
-func (builder *meshBuilderImpl) Start(config config.Config) error {
+func (builder *meshBuilderImpl) FindService(name string, service interface{}) {
+	builder.injector.Get(name, service)
+}
 
-	context := injector.New()
+func (builder *meshBuilderImpl) Start(config config.Config) error {
 
 	for _, extension := range builder.extensions {
 		subconfig, err := extend.SubConfig(config, "gomesh", "extension", extension.Name())
@@ -142,7 +146,7 @@ func (builder *meshBuilderImpl) Start(config config.Config) error {
 
 		builder.DebugF("create service %s by extension %s -- success", serviceName, extension.Name())
 
-		context.Register(serviceName, service)
+		builder.injector.Register(serviceName, service)
 
 		services = append(services, ServiceRegisterEntry{Name: serviceName, Service: service})
 	}
@@ -151,7 +155,7 @@ func (builder *meshBuilderImpl) Start(config config.Config) error {
 
 		builder.DebugF("bind service %s", entry.Name)
 
-		if err := context.Bind(entry.Service); err != nil {
+		if err := builder.injector.Bind(entry.Service); err != nil {
 			return xerrors.Wrapf(err, "service %s bind error", entry.Name)
 		}
 
