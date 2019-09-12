@@ -2,6 +2,7 @@ package gomesh
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/dynamicgo/go-config"
 	extend "github.com/dynamicgo/go-config-extend"
@@ -60,15 +61,20 @@ type meshBuilderImpl struct {
 	orderServices   []string             //order service name
 	extensions      map[string]Extension // extensions
 	orderExtensions []Extension          // order extension names
+	started         atomic.Value         // started
 }
 
 func newMeshBuilder() MeshBuilder {
-	return &meshBuilderImpl{
+	impl := &meshBuilderImpl{
 		Logger:     slf4go.Get("gomesh"),
 		registers:  make(map[string]string),
 		extensions: make(map[string]Extension),
 		injector:   injector.New(),
 	}
+
+	impl.started.Store(false)
+
+	return impl
 }
 
 func (builder *meshBuilderImpl) RegisterService(extensionName string, serviceName string) error {
@@ -104,6 +110,12 @@ func (builder *meshBuilderImpl) RegisterExtension(extension Extension) error {
 }
 
 func (builder *meshBuilderImpl) FindService(name string, service interface{}) {
+
+	if !builder.started.Load().(bool) {
+		builder.DebugF("mesh builder processing, FindService not valid")
+		return
+	}
+
 	builder.injector.Get(name, service)
 }
 
@@ -146,9 +158,11 @@ func (builder *meshBuilderImpl) Start(config config.Config) error {
 
 		builder.DebugF("create service %s by extension %s -- success", serviceName, extension.Name())
 
-		builder.injector.Register(serviceName, service)
-
 		services = append(services, ServiceRegisterEntry{Name: serviceName, Service: service})
+	}
+
+	for _, entry := range services {
+		builder.injector.Register(entry.Name, entry.Service)
 	}
 
 	for _, entry := range services {
@@ -182,6 +196,8 @@ func (builder *meshBuilderImpl) Start(config config.Config) error {
 			builder.DebugF("start runnable service %s -- success", entry.Name)
 		}
 	}
+
+	builder.started.Store(true)
 
 	return nil
 }
