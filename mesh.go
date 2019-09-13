@@ -108,6 +108,8 @@ func (mesh *meshImpl) Start(loaders ...ConfigLoader) error {
 			}
 
 			mesh.injector.Register(name, service)
+
+			builder.services = append(builder.services, service)
 		}
 
 		err = builder.module.EndCreateService()
