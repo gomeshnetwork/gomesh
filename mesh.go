@@ -212,6 +212,15 @@ func (mesh *meshImpl) Start(loaders ...ConfigLoader) error {
 		if err != nil {
 			return xerrors.Wrapf(err, "call module %s EndStarService error", builder.module.Name())
 		}
+
+		// start module
+		runnable, ok := builder.module.(Runnable)
+
+		if ok {
+			if err := runnable.Start(); err != nil {
+				return err
+			}
+		}
 	}
 
 	mesh.init.Store(true)
