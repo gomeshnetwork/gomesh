@@ -1,6 +1,7 @@
 package gomesh
 
 import (
+	"fmt"
 	"sync/atomic"
 
 	"github.com/dynamicgo/go-config"
@@ -51,7 +52,7 @@ func (mesh *meshImpl) Module(module Module) ModuleBuilder {
 
 	mesh.builders = append(mesh.builders, builder)
 
-	mesh.injector.Register(module.Name(), module)
+	mesh.injector.Register(fmt.Sprintf("%s-%p", module.Name(), module), module)
 
 	return builder
 }
