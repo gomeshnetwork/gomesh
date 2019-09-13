@@ -27,9 +27,9 @@ func (moduleBuilder *moduleBuilderImpl) RegisterService(name string) {
 
 type meshImpl struct {
 	slf4go.Logger
-	injector       injector.Injector // injector context
-	init           atomic.Value      // started
-	moduleCreators []ModuleF         // module list
+	injector injector.Injector    // injector context
+	init     atomic.Value         // started
+	builders []*moduleBuilderImpl // module list
 }
 
 // New create new mesh instance
@@ -44,8 +44,16 @@ func New() Mesh {
 	return mesh
 }
 
-func (mesh *meshImpl) Module(f ModuleF) {
-	mesh.moduleCreators = append(mesh.moduleCreators, f)
+func (mesh *meshImpl) Module(module Module) ModuleBuilder {
+	builder := newModuleBuidler()
+
+	builder.module = module
+
+	mesh.builders = append(mesh.builders, builder)
+
+	mesh.injector.Register(module.Name(), module)
+
+	return builder
 }
 
 func (mesh *meshImpl) Services(serviceSlice interface{}) {
@@ -81,24 +89,7 @@ func (mesh *meshImpl) Start(loaders ...ConfigLoader) error {
 		return xerrors.Wrapf(err, "load config error")
 	}
 
-	var builders []*moduleBuilderImpl
-
-	// create module
-	for _, f := range mesh.moduleCreators {
-		builder := newModuleBuidler()
-
-		module, err := f(builder)
-
-		if err != nil {
-			return xerrors.Wrapf(err, "create module error")
-		}
-
-		builder.module = module
-
-		builders = append(builders, builder)
-
-		mesh.injector.Register(module.Name(), module)
-	}
+	builders := mesh.builders
 
 	for _, builder := range builders {
 

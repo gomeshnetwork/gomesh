@@ -30,7 +30,7 @@ type ServiceRegisterEntry struct {
 
 // Mesh golang service mesh object, handle the service inject and extension module
 type Mesh interface {
-	Module(f ModuleF)
+	Module(module Module) ModuleBuilder
 	Services(serviceSlice interface{})
 	ServiceByName(name string, service interface{})
 	Start(loaders ...ConfigLoader) error
