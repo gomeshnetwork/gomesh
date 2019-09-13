@@ -4,6 +4,7 @@ import (
 	"sync/atomic"
 
 	"github.com/dynamicgo/go-config"
+	extend "github.com/dynamicgo/go-config-extend"
 	"github.com/dynamicgo/go-config/source"
 	"github.com/dynamicgo/injector"
 	"github.com/dynamicgo/slf4go"
@@ -172,9 +173,15 @@ func (mesh *meshImpl) Start(loaders ...ConfigLoader) error {
 			return xerrors.Wrapf(err, "call module %s BeginStartService error", builder.module.Name())
 		}
 
-		for _, service := range builder.services {
+		for i, service := range builder.services {
 
-			err := builder.module.SetupService(service)
+			subconfig, err := extend.SubConfig(config, "gomesh", "service", builder.serviceNames[i])
+
+			if err != nil {
+				return xerrors.Wrapf(err, "get config of service %s error", builder.serviceNames[i])
+			}
+
+			err = builder.module.StartService(service, subconfig)
 
 			if err != nil {
 				return xerrors.Wrapf(err, "create service %s error")
