@@ -94,7 +94,15 @@ func (mesh *meshImpl) Start(loaders ...ConfigLoader) error {
 
 	for _, builder := range builders {
 
-		err := builder.module.BeginCreateService()
+		subconfig, err := extend.SubConfig(config, "gomesh", "module", builder.module.Name())
+
+		if err != nil {
+			return xerrors.Wrapf(err, "get config of module %s error", builder.module.Name())
+		}
+
+		builder.module.Config(subconfig)
+
+		err = builder.module.BeginCreateService()
 
 		if err != nil {
 			return xerrors.Wrapf(err, "call module %s BeginCreateService error", builder.module.Name())
@@ -102,7 +110,13 @@ func (mesh *meshImpl) Start(loaders ...ConfigLoader) error {
 
 		for _, name := range builder.serviceNames {
 
-			service, err := builder.module.CreateService(name)
+			subconfig, err := extend.SubConfig(config, "gomesh", "service", name)
+
+			if err != nil {
+				return xerrors.Wrapf(err, "get config of service %s error", name)
+			}
+
+			service, err := builder.module.CreateService(name, subconfig)
 
 			if err != nil {
 				return xerrors.Wrapf(err, "create service %s error")
@@ -122,6 +136,15 @@ func (mesh *meshImpl) Start(loaders ...ConfigLoader) error {
 
 	// inject services
 	for _, builder := range builders {
+
+		mesh.DebugF("injector module %s", builder.module.Name())
+
+		if err := mesh.injector.Bind(builder.module); err != nil {
+			return xerrors.Wrapf(err, "inject module %s error", builder.module.Name())
+		}
+
+		mesh.DebugF("injector module %s -- success", builder.module.Name())
+
 		for i, service := range builder.services {
 			mesh.DebugF("injector service %s", builder.serviceNames[i])
 
@@ -167,15 +190,9 @@ func (mesh *meshImpl) Start(loaders ...ConfigLoader) error {
 			return xerrors.Wrapf(err, "call module %s BeginStartService error", builder.module.Name())
 		}
 
-		for i, service := range builder.services {
+		for _, service := range builder.services {
 
-			subconfig, err := extend.SubConfig(config, "gomesh", "service", builder.serviceNames[i])
-
-			if err != nil {
-				return xerrors.Wrapf(err, "get config of service %s error", builder.serviceNames[i])
-			}
-
-			err = builder.module.StartService(service, subconfig)
+			err = builder.module.StartService(service)
 
 			if err != nil {
 				return xerrors.Wrapf(err, "create service %s error")

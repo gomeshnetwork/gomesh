@@ -19,7 +19,11 @@ var (
 
 // Service gomesh service base interface has nothing
 type Service interface {
-	Start(config config.Config) error
+}
+
+// Runnable .
+type Runnable interface {
+	Start() error
 }
 
 // ServiceRegisterEntry .
@@ -48,14 +52,15 @@ type ModuleBuilder interface {
 type Module interface {
 	Service
 	Name() string
+	Config(config config.Config)
 	BeginCreateService() error
-	CreateService(name string) (Service, error)
+	CreateService(name string, config config.Config) (Service, error)
 	EndCreateService() error
 	BeginSetupService() error
 	SetupService(service Service) error
 	EndSetupService() error
 	BeginStartService() error
-	StartService(service Service, config config.Config) error
+	StartService(service Service) error
 	EndStarService() error
 }
 
