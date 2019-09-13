@@ -6,7 +6,6 @@ import (
 
 	"github.com/dynamicgo/go-config"
 	extend "github.com/dynamicgo/go-config-extend"
-	"github.com/dynamicgo/go-config/source"
 	"github.com/dynamicgo/injector"
 	"github.com/dynamicgo/slf4go"
 	"github.com/dynamicgo/xerrors"
@@ -77,22 +76,7 @@ func (mesh *meshImpl) ServiceByName(name string, service interface{}) bool {
 	return true
 }
 
-func (mesh *meshImpl) Start(loaders ...ConfigLoader) error {
-	// first load configs
-
-	sources := []source.Source{}
-
-	for _, loader := range loaders {
-		sources = append(sources, loader.Load()...)
-	}
-
-	config := config.NewConfig()
-
-	err := config.Load(sources...)
-
-	if err != nil {
-		return xerrors.Wrapf(err, "load config error")
-	}
+func (mesh *meshImpl) Start(config config.Config) error {
 
 	builders := mesh.builders
 

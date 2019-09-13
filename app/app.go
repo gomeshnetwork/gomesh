@@ -19,7 +19,7 @@ import (
 )
 
 // Run run gomesh app
-func Run(appname string) {
+func Run(appname string, mesh gomesh.Mesh) {
 	logger := slf4go.Get(appname)
 
 	defer func() {
@@ -52,7 +52,7 @@ func Run(appname string) {
 		return
 	}
 
-	if err := gomesh.Builder().Start(config); err != nil {
+	if err := mesh.Start(config); err != nil {
 		logger.InfoF("start gomesh error: \n%s", err)
 		return
 	}

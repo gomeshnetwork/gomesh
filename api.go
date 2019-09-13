@@ -2,7 +2,6 @@ package gomesh
 
 import (
 	"github.com/dynamicgo/go-config"
-	"github.com/dynamicgo/go-config/source"
 	"github.com/dynamicgo/xerrors/apierr"
 )
 
@@ -39,7 +38,7 @@ type Mesh interface {
 	Services(serviceSlice interface{}) bool
 	// if mesh started, this function return true
 	ServiceByName(name string, service interface{}) bool
-	Start(loaders ...ConfigLoader) error
+	Start(config config.Config) error
 }
 
 // ModuleF module create factory
@@ -64,9 +63,4 @@ type Module interface {
 	BeginStartService() error
 	StartService(service Service) error
 	EndStarService() error
-}
-
-// ConfigLoader config loader
-type ConfigLoader interface {
-	Load() []source.Source
 }
