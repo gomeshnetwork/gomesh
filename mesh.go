@@ -192,7 +192,15 @@ func (mesh *meshImpl) Start(loaders ...ConfigLoader) error {
 
 		for _, service := range builder.services {
 
-			err = builder.module.StartService(service)
+			runnable, ok := service.(Runnable)
+
+			if ok {
+				if err := runnable.Start(); err != nil {
+					return err
+				}
+			}
+
+			err := builder.module.StartService(service)
 
 			if err != nil {
 				return xerrors.Wrapf(err, "create service %s error")
