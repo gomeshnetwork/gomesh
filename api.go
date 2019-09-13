@@ -35,8 +35,10 @@ type ServiceRegisterEntry struct {
 // Mesh golang service mesh object, handle the service inject and extension module
 type Mesh interface {
 	Module(module Module) ModuleBuilder
-	Services(serviceSlice interface{})
-	ServiceByName(name string, service interface{})
+	// if mesh started, this function return true
+	Services(serviceSlice interface{}) bool
+	// if mesh started, this function return true
+	ServiceByName(name string, service interface{}) bool
 	Start(loaders ...ConfigLoader) error
 }
 

@@ -57,20 +57,24 @@ func (mesh *meshImpl) Module(module Module) ModuleBuilder {
 	return builder
 }
 
-func (mesh *meshImpl) Services(serviceSlice interface{}) {
+func (mesh *meshImpl) Services(serviceSlice interface{}) bool {
 	if !mesh.init.Load().(bool) {
-		return
+		return false
 	}
 
 	mesh.injector.Find(serviceSlice)
+
+	return true
 }
 
-func (mesh *meshImpl) ServiceByName(name string, service interface{}) {
+func (mesh *meshImpl) ServiceByName(name string, service interface{}) bool {
 	if !mesh.init.Load().(bool) {
-		return
+		return false
 	}
 
 	mesh.injector.Get(name, service)
+
+	return true
 }
 
 func (mesh *meshImpl) Start(loaders ...ConfigLoader) error {
